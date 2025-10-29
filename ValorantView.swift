@@ -7,6 +7,7 @@
 
 
 import SwiftUI
+import Clerk
 
 // MARK: - Data Models (Valorant Specific)
 struct VALMatch: Identifiable, Decodable {
@@ -36,11 +37,30 @@ struct VALNewsItem: Identifiable, Decodable {
     let date: String
 }
 
-struct VALForumTopic: Identifiable, Decodable {
+struct VALForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
     let id: String
     let title: String
     let author: String
     let replies: Int
+}
+
+// MARK: - Persistence Manager
+class VALForumPersistenceManager {
+    static let key = "ValorantCustomForums"
+    
+    static func save(_ topics: [VALForumTopic]) {
+        if let encoded = try? JSONEncoder().encode(topics) {
+            UserDefaults.standard.set(encoded, forKey: key)
+        }
+    }
+    
+    static func load() -> [VALForumTopic] {
+        if let savedData = UserDefaults.standard.data(forKey: key),
+           let decodedTopics = try? JSONDecoder().decode([VALForumTopic].self, from: savedData) {
+            return decodedTopics
+        }
+        return []
+    }
 }
 
 // MARK: - ViewModel (Valorant)
@@ -50,8 +70,16 @@ class ValorantViewModel: ObservableObject {
     @Published var newsItems: [VALNewsItem] = []
     @Published var forumTopics: [VALForumTopic] = []
 
+    private var initialForumTopics: [VALForumTopic] = []
+    @Published private var customForumTopics: [VALForumTopic] = VALForumPersistenceManager.load()
+
+
     init() {
         fetchValorantData()
+    }
+    
+    private func updateForumTopics() {
+        self.forumTopics = customForumTopics + initialForumTopics
     }
 
     func fetchValorantData() {
@@ -98,11 +126,27 @@ class ValorantViewModel: ObservableObject {
             self.completedMatches = try decoder.decode([VALMatch].self, from: matchesJson.data(using: .utf8)!)
             self.americasTeams = try decoder.decode([VALTeam].self, from: teamsJson.data(using: .utf8)!)
             self.newsItems = try decoder.decode([VALNewsItem].self, from: newsJson.data(using: .utf8)!)
-            self.forumTopics = try decoder.decode([VALForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            
+            self.initialForumTopics = try decoder.decode([VALForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            updateForumTopics()
 
         } catch {
             print("Failed to decode mock data: \(error)")
         }
+    }
+    
+    func addForumTopic(title: String, author: String) {
+        let newTopic = VALForumTopic(
+            id: UUID().uuidString,
+            title: title,
+            author: author,
+            replies: 0
+        )
+        
+        customForumTopics.insert(newTopic, at: 0)
+        VALForumPersistenceManager.save(customForumTopics)
+        
+        updateForumTopics()
     }
 }
 
@@ -189,7 +233,113 @@ struct ValorantView: View {
     }
 }
 
-// MARK: - Updated Destination Views
+// MARK: - Forms Views
+
+struct VALNewForumTopicView: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: ValorantViewModel
+    @Environment(\.clerk) private var clerk
+
+    @State private var newTopicTitle: String = ""
+    @State private var newTopicBody: String = "Write your discussion here..."
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Topic Details").foregroundColor(.red)) {
+                    TextField("Topic Title (Required)", text: $newTopicTitle)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                    
+                    TextEditor(text: $newTopicBody)
+                        .frame(height: 150)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                }
+                .listRowSeparator(.hidden)
+            }
+            .background(Color.black.edgesIgnoringSafeArea(.all))
+            .scrollContentBackground(.hidden)
+            .navigationTitle("New Valorant Forum")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Post") {
+                        postNewTopic()
+                    }
+                    .foregroundColor(.red)
+                    .disabled(newTopicTitle.isEmpty)
+                }
+            }
+        }
+        .accentColor(.white)
+    }
+
+    private func postNewTopic() {
+        let author = clerk.user?.firstName ?? "Anonymous"
+        viewModel.addForumTopic(title: newTopicTitle, author: author)
+        dismiss()
+    }
+}
+
+
+struct ValorantForumsView: View {
+    @ObservedObject var viewModel: ValorantViewModel
+    @State private var showingNewTopicSheet = false
+
+    var body: some View {
+        List {
+            ForEach(viewModel.forumTopics) { topic in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(topic.title)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    HStack {
+                        if topic.replies == 0 {
+                            Text("By \(topic.author) (User Post)")
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                        } else {
+                            Text("By \(topic.author)")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Text("\(topic.replies) replies")
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                }
+                .listRowBackground(Color.black)
+            }
+        }
+        .listStyle(PlainListStyle())
+        .background(Color.black.edgesIgnoringSafeArea(.all))
+        .scrollContentBackground(.hidden)
+        .navigationBarTitle("Forums", displayMode: .inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showingNewTopicSheet = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .sheet(isPresented: $showingNewTopicSheet) {
+            VALNewForumTopicView(viewModel: viewModel)
+        }
+    }
+}
+
+// MARK: - Other Destination Views (For completeness)
 
 struct ValorantMatchesView: View {
     @ObservedObject var viewModel: ValorantViewModel
@@ -275,35 +425,5 @@ struct ValorantNewsView: View {
         .background(Color.black.edgesIgnoringSafeArea(.all))
         .scrollContentBackground(.hidden)
         .navigationBarTitle("News", displayMode: .inline)
-    }
-}
-
-struct ValorantForumsView: View {
-    @ObservedObject var viewModel: ValorantViewModel
-
-    var body: some View {
-        List {
-            ForEach(viewModel.forumTopics) { topic in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(topic.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text("By \(topic.author)")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        Spacer()
-                        Text("\(topic.replies) replies")
-                            .font(.subheadline)
-                            .foregroundColor(.red)
-                    }
-                }
-                .listRowBackground(Color.black)
-            }
-        }
-        .listStyle(PlainListStyle())
-        .background(Color.black.edgesIgnoringSafeArea(.all))
-        .scrollContentBackground(.hidden)
-        .navigationBarTitle("Forums", displayMode: .inline)
     }
 }
