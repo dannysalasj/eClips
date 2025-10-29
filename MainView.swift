@@ -7,16 +7,46 @@
 
 
 import SwiftUI
+import Clerk // <-- ADDED: Import the Clerk SDK
 
 
 @main
 struct eClipsApp: App {
+    
+    // ADDED: Create and manage the Clerk shared instance state
+    @State private var clerk = Clerk.shared
+    
     var body: some Scene {
         WindowGroup {
-            MainView()
+            // UPDATED: The app's root view is now conditional based on authentication
+            ContentView()
+                .environment(clerk) // ADDED: Inject the Clerk instance into the environment
+                .task {
+                    // ADDED: Configure Clerk with your key and load the initial session
+                    clerk.configure(publishableKey: "pk_test_Y29tcG9zZWQtcXVldHphbC0yOS5jbGVyay5hY2NvdW50cy5kZXYk")
+                    try? await clerk.load()
+                }
         }
     }
 }
+
+// ADDED: New Root View to Handle Authentication Flow
+struct ContentView: View {
+    @Environment(\.clerk) private var clerk // Access the injected Clerk instance
+    
+    var body: some View {
+        Group {
+            if let _ = clerk.user {
+                // User is signed in, show the main content
+                MainView()
+            } else {
+                // User is signed out, present Clerk's authentication flow
+                AuthView()
+            }
+        }
+    }
+}
+
 
 struct MainView: View {
     var body: some View {
