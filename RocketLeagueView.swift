@@ -7,6 +7,7 @@
 
 
 import SwiftUI
+import Clerk
 
 // MARK: - Data Models (Rocket League Specific)
 struct RLMatch: Identifiable, Decodable {
@@ -36,13 +37,32 @@ struct RLNewsItem: Identifiable, Decodable {
     let date: String
 }
 
-struct RLForumTopic: Identifiable, Decodable {
+struct RLForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
     let id: String
     let title: String
     let author: String
     let replies: Int
 }
 
+
+// MARK: - Persistence Manager
+class RLForumPersistenceManager {
+    static let key = "RocketLeagueCustomForums"
+    
+    static func save(_ topics: [RLForumTopic]) {
+        if let encoded = try? JSONEncoder().encode(topics) {
+            UserDefaults.standard.set(encoded, forKey: key)
+        }
+    }
+    
+    static func load() -> [RLForumTopic] {
+        if let savedData = UserDefaults.standard.data(forKey: key),
+           let decodedTopics = try? JSONDecoder().decode([RLForumTopic].self, from: savedData) {
+            return decodedTopics
+        }
+        return []
+    }
+}
 
 // MARK: - ViewModel (Rocket League)
 class RocketLeagueViewModel: ObservableObject {
@@ -51,9 +71,16 @@ class RocketLeagueViewModel: ObservableObject {
     @Published var newsItems: [RLNewsItem] = []
     @Published var forumTopics: [RLForumTopic] = []
 
+    private var initialForumTopics: [RLForumTopic] = []
+    @Published private var customForumTopics: [RLForumTopic] = RLForumPersistenceManager.load()
+
 
     init() {
         fetchRocketLeagueData()
+    }
+    
+    private func updateForumTopics() {
+        self.forumTopics = customForumTopics + initialForumTopics
     }
 
     func fetchRocketLeagueData() {
@@ -100,11 +127,27 @@ class RocketLeagueViewModel: ObservableObject {
             self.completedMatches = try decoder.decode([RLMatch].self, from: matchesJson.data(using: .utf8)!)
             self.americasTeams = try decoder.decode([RLTeam].self, from: teamsJson.data(using: .utf8)!)
             self.newsItems = try decoder.decode([RLNewsItem].self, from: newsJson.data(using: .utf8)!)
-            self.forumTopics = try decoder.decode([RLForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            
+            self.initialForumTopics = try decoder.decode([RLForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            updateForumTopics()
 
         } catch {
             print("Failed to decode mock data: \(error)")
         }
+    }
+    
+    func addForumTopic(title: String, author: String) {
+        let newTopic = RLForumTopic(
+            id: UUID().uuidString,
+            title: title,
+            author: author,
+            replies: 0
+        )
+        
+        customForumTopics.insert(newTopic, at: 0)
+        RLForumPersistenceManager.save(customForumTopics)
+        
+        updateForumTopics()
     }
 }
 
@@ -176,8 +219,112 @@ struct RocketLeagueView: View {
     }
 }
 
-// MARK: - Updated Destination Views
+// MARK: - Forms Views
 
+struct RLNewForumTopicView: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: RocketLeagueViewModel
+    @Environment(\.clerk) private var clerk
+
+    @State private var newTopicTitle: String = ""
+    @State private var newTopicBody: String = "Write your discussion here..."
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Topic Details").foregroundColor(.blue)) {
+                    TextField("Topic Title (Required)", text: $newTopicTitle)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                    
+                    TextEditor(text: $newTopicBody)
+                        .frame(height: 150)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                }
+                .listRowSeparator(.hidden)
+            }
+            .background(Color.black.edgesIgnoringSafeArea(.all))
+            .scrollContentBackground(.hidden)
+            .navigationTitle("New Rocket League Forum")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Post") {
+                        postNewTopic()
+                    }
+                    .foregroundColor(.blue)
+                    .disabled(newTopicTitle.isEmpty)
+                }
+            }
+        }
+        .accentColor(.white)
+    }
+
+    private func postNewTopic() {
+        let author = clerk.user?.firstName ?? "Anonymous"
+        viewModel.addForumTopic(title: newTopicTitle, author: author)
+        dismiss()
+    }
+}
+
+struct RocketLeagueForumsView: View {
+    @ObservedObject var viewModel: RocketLeagueViewModel
+    @State private var showingNewTopicSheet = false
+
+    var body: some View {
+        List {
+            ForEach(viewModel.forumTopics) { topic in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(topic.title)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    HStack {
+                        if topic.replies == 0 {
+                            Text("By \(topic.author) (User Post)")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                        } else {
+                            Text("By \(topic.author)")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Text("\(topic.replies) replies")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+                    }
+                }
+                .listRowBackground(Color.black)
+            }
+        }
+        .listStyle(PlainListStyle())
+        .background(Color.black.edgesIgnoringSafeArea(.all))
+        .scrollContentBackground(.hidden)
+        .navigationBarTitle("Forums", displayMode: .inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showingNewTopicSheet = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .sheet(isPresented: $showingNewTopicSheet) {
+            RLNewForumTopicView(viewModel: viewModel)
+        }
+    }
+}
+
+// MARK: - Other Destination Views (For completeness)
 struct RocketLeagueMatchesView: View {
     @ObservedObject var viewModel: RocketLeagueViewModel
 
@@ -262,35 +409,5 @@ struct RocketLeagueNewsView: View {
         .background(Color.black.edgesIgnoringSafeArea(.all))
         .scrollContentBackground(.hidden)
         .navigationBarTitle("News", displayMode: .inline)
-    }
-}
-
-struct RocketLeagueForumsView: View {
-    @ObservedObject var viewModel: RocketLeagueViewModel
-
-    var body: some View {
-        List {
-            ForEach(viewModel.forumTopics) { topic in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(topic.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text("By \(topic.author)")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        Spacer()
-                        Text("\(topic.replies) replies")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                    }
-                }
-                .listRowBackground(Color.black)
-            }
-        }
-        .listStyle(PlainListStyle())
-        .background(Color.black.edgesIgnoringSafeArea(.all))
-        .scrollContentBackground(.hidden)
-        .navigationBarTitle("Forums", displayMode: .inline)
     }
 }
