@@ -12,7 +12,7 @@ import Clerk // <-- ADDED: Import the Clerk SDK
 
 @main
 struct eClipsApp: App {
-    
+
     // ADDED: Create and manage the Clerk shared instance state
     @State private var clerk = Clerk.shared
     
@@ -22,7 +22,7 @@ struct eClipsApp: App {
             ContentView()
                 .environment(clerk) // ADDED: Inject the Clerk instance into the environment
                 .task {
-                    // ADDED: Configure Clerk with your key and load the initial session
+                    // Configure Clerk with key and load the initial session
                     clerk.configure(publishableKey: "pk_test_Y29tcG9zZWQtcXVldHphbC0yOS5jbGVyay5hY2NvdW50cy5kZXYk")
                     try? await clerk.load()
                 }
@@ -49,6 +49,9 @@ struct ContentView: View {
 
 
 struct MainView: View {
+    // MODIFIED: Inject the Clerk environment object to access the signOut function
+    @Environment(\.clerk) private var clerk
+
     var body: some View {
         NavigationView {
             VStack {
@@ -113,10 +116,27 @@ struct MainView: View {
                 .scrollContentBackground(.hidden)
             }
             .toolbar {
+                // Toolbar title (principal placement)
                 ToolbarItem(placement: .principal) {
                     Text("eClips")
                         .font(.largeTitle)
                         .foregroundColor(.purple)
+                }
+                
+                // ADDED: Log Out button in the trailing position
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Log Out") {
+                        // Call the async signOut method
+                        Task {
+                            do {
+                                try await clerk.signOut()
+                                // ContentView will automatically switch to AuthView()
+                            } catch {
+                                print("Error signing out: \(error)")
+                            }
+                        }
+                    }
+                    .foregroundColor(.white) // Ensure the button text is visible
                 }
             }
             // For iOS 16+ explicitly set toolbar background
