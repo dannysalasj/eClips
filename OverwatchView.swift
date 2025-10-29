@@ -7,6 +7,7 @@
 
 
 import SwiftUI
+import Clerk
 
 // MARK: - Data Models (Overwatch Specific)
 struct OWMatch: Identifiable, Decodable {
@@ -36,11 +37,30 @@ struct OWNewsItem: Identifiable, Decodable {
     let date: String
 }
 
-struct OWForumTopic: Identifiable, Decodable {
+struct OWForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
     let id: String
     let title: String
     let author: String
     let replies: Int
+}
+
+// MARK: - Persistence Manager
+class OWForumPersistenceManager {
+    static let key = "OverwatchCustomForums"
+    
+    static func save(_ topics: [OWForumTopic]) {
+        if let encoded = try? JSONEncoder().encode(topics) {
+            UserDefaults.standard.set(encoded, forKey: key)
+        }
+    }
+    
+    static func load() -> [OWForumTopic] {
+        if let savedData = UserDefaults.standard.data(forKey: key),
+           let decodedTopics = try? JSONDecoder().decode([OWForumTopic].self, from: savedData) {
+            return decodedTopics
+        }
+        return []
+    }
 }
 
 // MARK: - ViewModel
@@ -50,8 +70,16 @@ class OverwatchViewModel: ObservableObject {
     @Published var newsItems: [OWNewsItem] = []
     @Published var forumTopics: [OWForumTopic] = []
 
+    private var initialForumTopics: [OWForumTopic] = []
+    @Published private var customForumTopics: [OWForumTopic] = OWForumPersistenceManager.load()
+
     init() {
         fetchOverwatchData()
+    }
+    
+    private func updateForumTopics() {
+        // Combine custom (newest) and mock (initial) data
+        self.forumTopics = customForumTopics + initialForumTopics
     }
 
     func fetchOverwatchData() {
@@ -122,11 +150,29 @@ class OverwatchViewModel: ObservableObject {
             self.completedMatches = try decoder.decode([OWMatch].self, from: matchesJson.data(using: .utf8)!)
             self.americasTeams = try decoder.decode([OWTeam].self, from: teamsJson.data(using: .utf8)!)
             self.newsItems = try decoder.decode([OWNewsItem].self, from: newsJson.data(using: .utf8)!)
-            self.forumTopics = try decoder.decode([OWForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            
+            self.initialForumTopics = try decoder.decode([OWForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            updateForumTopics() // Initial load and combination
 
         } catch {
             print("Failed to decode mock data: \(error)")
         }
+    }
+    
+    func addForumTopic(title: String, author: String) {
+        let newTopic = OWForumTopic(
+            id: UUID().uuidString,
+            title: title,
+            author: author,
+            replies: 0
+        )
+        
+        // Add to the custom list and persist
+        customForumTopics.insert(newTopic, at: 0)
+        OWForumPersistenceManager.save(customForumTopics)
+        
+        // Update the published array to refresh the view
+        updateForumTopics()
     }
 }
 
@@ -199,8 +245,117 @@ struct OverwatchView: View {
     }
 }
 
-// MARK: - Updated Destination Views
+// MARK: - Forms Views
 
+struct OWNewForumTopicView: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: OverwatchViewModel
+    @Environment(\.clerk) private var clerk // To get the author name
+
+    @State private var newTopicTitle: String = ""
+    @State private var newTopicBody: String = "Write your discussion here..."
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Topic Details").foregroundColor(.orange)) {
+                    TextField("Topic Title (Required)", text: $newTopicTitle)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                    
+                    TextEditor(text: $newTopicBody)
+                        .frame(height: 150)
+                        .foregroundColor(.white)
+                        .listRowBackground(Color.black)
+                }
+                .listRowSeparator(.hidden)
+            }
+            .background(Color.black.edgesIgnoringSafeArea(.all))
+            .scrollContentBackground(.hidden)
+            .navigationTitle("New Overwatch Forum")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Post") {
+                        postNewTopic()
+                    }
+                    .foregroundColor(.orange)
+                    .disabled(newTopicTitle.isEmpty)
+                }
+            }
+        }
+        .accentColor(.white)
+    }
+
+    private func postNewTopic() {
+        // Use the logged-in user's first name, or a generic name if unavailable
+        let author = clerk.user?.firstName ?? "Anonymous"
+        viewModel.addForumTopic(title: newTopicTitle, author: author)
+        dismiss()
+    }
+}
+
+
+struct OverwatchForumsView: View {
+    @ObservedObject var viewModel: OverwatchViewModel
+    @State private var showingNewTopicSheet = false
+
+    var body: some View {
+        List {
+            ForEach(viewModel.forumTopics) { topic in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(topic.title)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    HStack {
+                        // Highlight user-created topics with 0 replies in this mock scenario
+                        if topic.replies == 0 {
+                            Text("By \(topic.author) (User Post)")
+                                .font(.subheadline)
+                                .foregroundColor(.orange)
+                        } else {
+                            Text("By \(topic.author)")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Text("\(topic.replies) replies")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                    }
+                }
+                .listRowBackground(Color.black)
+            }
+        }
+        .listStyle(PlainListStyle())
+        .background(Color.black.edgesIgnoringSafeArea(.all))
+        .scrollContentBackground(.hidden)
+        .navigationBarTitle("Forums", displayMode: .inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showingNewTopicSheet = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .sheet(isPresented: $showingNewTopicSheet) {
+            // Pass the viewModel to the new topic view
+            OWNewForumTopicView(viewModel: viewModel)
+        }
+    }
+}
+
+
+// MARK: - Other Destination Views
 struct OverwatchMatchesView: View {
     @ObservedObject var viewModel: OverwatchViewModel
     
@@ -258,6 +413,7 @@ struct OverwatchTeamsView: View {
     }
 }
 
+// **This is the missing view that caused the error.**
 struct OverwatchNewsView: View {
     @ObservedObject var viewModel: OverwatchViewModel
     
@@ -287,34 +443,3 @@ struct OverwatchNewsView: View {
         .navigationBarTitle("News", displayMode: .inline)
     }
 }
-
-struct OverwatchForumsView: View {
-    @ObservedObject var viewModel: OverwatchViewModel
-
-    var body: some View {
-        List {
-            ForEach(viewModel.forumTopics) { topic in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(topic.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text("By \(topic.author)")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        Spacer()
-                        Text("\(topic.replies) replies")
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
-                    }
-                }
-                .listRowBackground(Color.black)
-            }
-        }
-        .listStyle(PlainListStyle())
-        .background(Color.black.edgesIgnoringSafeArea(.all))
-        .scrollContentBackground(.hidden)
-        .navigationBarTitle("Forums", displayMode: .inline)
-    }
-}
-
