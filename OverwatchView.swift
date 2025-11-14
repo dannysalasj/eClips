@@ -1,15 +1,8 @@
-//
-//  OverwatchView.swift
-//  eClips
-//
-//  Created by Daniel Salas on 5/2/25.
-//
-
-
 import SwiftUI
 import Clerk
 
 // MARK: - Data Models (Overwatch Specific)
+// NOTE: OWNewsItem was removed. We now use the 'NewsArticle' model from Models.swift
 struct OWMatch: Identifiable, Decodable {
     let id: String
     let tournament: String
@@ -30,12 +23,7 @@ struct OWTeam: Identifiable, Decodable {
     let region: String
 }
 
-struct OWNewsItem: Identifiable, Decodable {
-    let id: String
-    let title: String
-    let source: String
-    let date: String
-}
+// OWNewsItem struct removed.
 
 struct OWForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
     let id: String
@@ -67,96 +55,98 @@ class OWForumPersistenceManager {
 class OverwatchViewModel: ObservableObject {
     @Published var completedMatches: [OWMatch] = []
     @Published var americasTeams: [OWTeam] = []
-    @Published var newsItems: [OWNewsItem] = []
+    @Published var newsItems: [NewsArticle] = [] // Uses global NewsArticle
     @Published var forumTopics: [OWForumTopic] = []
+
+    // --- 1. CHANGED: Added new loading state variable ---
+    @Published var isLoadingNews = true
 
     private var initialForumTopics: [OWForumTopic] = []
     @Published private var customForumTopics: [OWForumTopic] = OWForumPersistenceManager.load()
-
-    init() {
-        fetchOverwatchData()
-    }
     
     private func updateForumTopics() {
         // Combine custom (newest) and mock (initial) data
         self.forumTopics = customForumTopics + initialForumTopics
     }
 
-    func fetchOverwatchData() {
-        // --- MOCK DATA SIMULATING COMPLETED MATCHES ---
-        let matchesJson = """
-        [
-            {
-                "id": "ow_m1",
-                "tournament": "OWL 2024 Grand Finals",
-                "team1Name": "Atlanta Reign",
-                "team2Name": "Boston Uprising",
-                "team1Score": 4,
-                "team2Score": 2,
-                "date": "2024-10-28"
-            },
-            {
-                "id": "ow_m2",
-                "tournament": "Contenders NA Summer",
-                "team1Name": "Toronto Defiant Academy",
-                "team2Name": "Karmina Corp",
-                "team1Score": 2,
-                "team2Score": 3,
-                "date": "2024-10-25"
-            },
-            {
-                "id": "ow_m3",
-                "tournament": "OWL Regular Season",
-                "team1Name": "San Francisco Shock",
-                "team2Name": "Dallas Fuel",
-                "team1Score": 3,
-                "team2Score": 0,
-                "date": "2024-10-20"
-            }
-        ]
-        """
+    // --- 2. CHANGED: Updated fetch function ---
+    @MainActor
+    func fetchOverwatchData() async {
         
-        // --- MOCK DATA SIMULATING 5 AMERICAS TEAMS ---
-        let teamsJson = """
-        [
-            {"id": "ow_t1", "name": "Atlanta Reign", "region": "Americas"},
-            {"id": "ow_t2", "name": "Boston Uprising", "region": "Americas"},
-            {"id": "ow_t3", "name": "Toronto Defiant", "region": "Americas"},
-            {"id": "ow_t4", "name": "Vancouver Titans", "region": "Americas"},
-            {"id": "ow_t5", "name": "Dallas Fuel", "region": "Americas"}
-        ]
-        """
-
-        // --- MOCK DATA SIMULATING NEWS ---
-        let newsJson = """
-        [
-            {"id": "ow_n1", "title": "New Tank Hero 'Nova' Revealed with Launch Trailer and Abilities", "source": "Blizzard Entertainment", "date": "2025-10-29"},
-            {"id": "ow_n2", "title": "Boston Uprising announces full roster changes for the next Pro-Am tournament.", "source": "Overwatch Wire", "date": "2025-10-27"},
-            {"id": "ow_n3", "title": "Flashpoint Map temporarily disabled due to critical pathing bug.", "source": "Competitive Overwatch", "date": "2025-10-26"}
-        ]
-        """
-
-        // --- MOCK DATA SIMULATING FORUMS ---
-        let forumsJson = """
-        [
-            {"id": "ow_f1", "title": "Who do you think is the best Zarya player right now? Discussion.", "author": "TankMain77", "replies": 560},
-            {"id": "ow_f2", "title": "Request: New competitive mode rule set for one-tank.", "author": "RuleChanger", "replies": 1823},
-            {"id": "ow_f3", "title": "My favorite legendary skins from the Halloween event!", "author": "CollectorOW", "replies": 95}
-        ]
-        """
-
+        // Start loading
+        self.isLoadingNews = true
+        
         do {
+            // --- MOCK DATA SIMULATING COMPLETED MATCHES ---
+            let matchesJson = """
+            [
+                {
+                    "id": "ow_m1",
+                    "tournament": "OWL 2024 Grand Finals",
+                    "team1Name": "Atlanta Reign",
+                    "team2Name": "Boston Uprising",
+                    "team1Score": 4,
+                    "team2Score": 2,
+                    "date": "2024-10-28"
+                },
+                {
+                    "id": "ow_m2",
+                    "tournament": "Contenders NA Summer",
+                    "team1Name": "Toronto Defiant Academy",
+                    "team2Name": "Karmina Corp",
+                    "team1Score": 2,
+                    "team2Score": 3,
+                    "date": "2024-10-25"
+                },
+                {
+                    "id": "ow_m3",
+                    "tournament": "OWL Regular Season",
+                    "team1Name": "San Francisco Shock",
+                    "team2Name": "Dallas Fuel",
+                    "team1Score": 3,
+                    "team2Score": 0,
+                    "date": "2024-10-20"
+                }
+            ]
+            """
+            
+            // --- MOCK DATA SIMULATING 5 AMERICAS TEAMS ---
+            let teamsJson = """
+            [
+                {"id": "ow_t1", "name": "Atlanta Reign", "region": "Americas"},
+                {"id": "ow_t2", "name": "Boston Uprising", "region": "Americas"},
+                {"id": "ow_t3", "name": "Toronto Defiant", "region": "Americas"},
+                {"id": "ow_t4", "name": "Vancouver Titans", "region": "Americas"},
+                {"id": "ow_t5", "name": "Dallas Fuel", "region": "Americas"}
+            ]
+            """
+
+            // --- MOCK DATA SIMULATING FORUMS ---
+            let forumsJson = """
+            [
+                {"id": "ow_f1", "title": "Who do you think is the best Zarya player right now? Discussion.", "author": "TankMain77", "replies": 560},
+                {"id": "ow_f2", "title": "Request: New competitive mode rule set for one-tank.", "author": "RuleChanger", "replies": 1823},
+                {"id": "ow_f3", "title": "My favorite legendary skins from the Halloween event!", "author": "CollectorOW", "replies": 95}
+            ]
+            """
+
+            // --- LIVE DATA CALL FOR NEWS ---
+            self.newsItems = try await NetworkDataService.shared.fetchOverwatchNews()
+
+            // --- Decode other mock data (for now) ---
             let decoder = JSONDecoder()
             self.completedMatches = try decoder.decode([OWMatch].self, from: matchesJson.data(using: .utf8)!)
             self.americasTeams = try decoder.decode([OWTeam].self, from: teamsJson.data(using: .utf8)!)
-            self.newsItems = try decoder.decode([OWNewsItem].self, from: newsJson.data(using: .utf8)!)
             
             self.initialForumTopics = try decoder.decode([OWForumTopic].self, from: forumsJson.data(using: .utf8)!)
             updateForumTopics() // Initial load and combination
 
         } catch {
-            print("Failed to decode mock data: \(error)")
+            print("Failed to decode or fetch data: \(error)")
         }
+        
+        // --- ADDED: Tell the UI we are done loading ---
+        self.isLoadingNews = false
     }
     
     func addForumTopic(title: String, author: String) {
@@ -181,70 +171,66 @@ class OverwatchViewModel: ObservableObject {
 struct OverwatchView: View {
     @StateObject var viewModel = OverwatchViewModel()
     
+    // NOTE: If you are using an iOS 16+ exclusive approach for UIBarAppearance,
+    // you might remove this init block and use the new SwiftUI modifiers instead.
+    init() {
+        // Set navigation bar appearance for this view
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor.orange // Overwatch Color
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        
+        // --- Tab Bar Appearance (Bottom Bar) ---
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithOpaqueBackground()
+        tabBarAppearance.backgroundColor = UIColor.black
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+    }
+    
     var body: some View {
-        ZStack {
-            // Background color for the entire view
-            Color.orange
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack {
-                Image("overwatch2")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 200)
-                
-                // Navigation buttons with custom styling
-                HStack(spacing: 15) {
-                    NavigationLink(destination: OverwatchMatchesView(viewModel: viewModel)) {
-                        Text("Matches")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.orange.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: OverwatchTeamsView(viewModel: viewModel)) {
-                        Text("Teams")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.orange.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: OverwatchNewsView(viewModel: viewModel)) {
-                        Text("News")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.orange.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: OverwatchForumsView(viewModel: viewModel)) {
-                        Text("Forums")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.orange.opacity(0.7))
-                            .cornerRadius(8)
-                    }
+        // --- MODIFIED: Uses TabView for main navigation ---
+        TabView {
+            // 1. Matches Tab
+            OverwatchMatchesView(viewModel: viewModel)
+                .tabItem {
+                    Label("Matches", systemImage: "sportscourt.fill")
                 }
-                .padding()
-                
-                Spacer()
-                
-                // Add more content here
-            }
+
+            // 2. Teams Tab
+            OverwatchTeamsView(viewModel: viewModel)
+                .tabItem {
+                    Label("Teams", systemImage: "person.3.fill")
+                }
+
+            // 3. News Tab
+            OverwatchNewsView(viewModel: viewModel)
+                .tabItem {
+                    Label("News", systemImage: "newspaper.fill")
+                }
+
+            // 4. Forums Tab
+            OverwatchForumsView(viewModel: viewModel)
+                .tabItem {
+                    Label("Forums", systemImage: "person.2.fill") // Community/Groups icon
+                }
         }
+        .accentColor(.orange) // Sets the color for the selected tab icon
+        .background(Color.black.edgesIgnoringSafeArea(.all))
         .navigationBarTitle("Overwatch 2", displayMode: .inline)
-        .accentColor(.white)
-        .toolbarBackground(Color.orange, for: .navigationBar)
+        .toolbarBackground(.black, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .task {
+            // This now runs when the view appears
+            await viewModel.fetchOverwatchData()
+        }
     }
 }
-
 // MARK: - Forms Views
 
 struct OWNewForumTopicView: View {
@@ -413,28 +399,47 @@ struct OverwatchTeamsView: View {
     }
 }
 
-// **This is the missing view that caused the error.**
+// --- 3. CHANGED: This view now checks the 'isLoadingNews' state ---
 struct OverwatchNewsView: View {
     @ObservedObject var viewModel: OverwatchViewModel
     
     var body: some View {
         List {
-            ForEach(viewModel.newsItems) { item in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text(item.source)
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
-                        Spacer()
-                        Text(item.date)
-                            .font(.caption)
-                            .foregroundColor(.gray)
+            // Show a loading indicator ONLY while loading
+            if viewModel.isLoadingNews {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .listRowBackground(Color.black)
+            }
+            // If we are DONE loading and the list is still empty...
+            else if viewModel.newsItems.isEmpty {
+                // ...show a "No News" message
+                Text("No news found.")
+                    .foregroundColor(.gray)
+                    .listRowBackground(Color.black)
+            }
+            // If we are done loading and have news, show it
+            else {
+                ForEach(viewModel.newsItems) { item in
+                    // Wrap in a Link to make it tappable
+                    Link(destination: URL(string: item.link)!) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(item.title)
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            HStack {
+                                Text(item.author) // Changed from .source
+                                    .font(.subheadline)
+                                    .foregroundColor(.orange)
+                                Spacer()
+                                Text(item.date)
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                        }
                     }
+                    .listRowBackground(Color.black)
                 }
-                .listRowBackground(Color.black)
             }
         }
         .listStyle(PlainListStyle())
