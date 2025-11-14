@@ -1,11 +1,3 @@
-//
-//  RocketLeagueView.swift
-//  eClips
-//
-//  Created by Daniel Salas on 5/2/25.
-//
-
-
 import SwiftUI
 import Clerk
 
@@ -155,70 +147,61 @@ class RocketLeagueViewModel: ObservableObject {
 struct RocketLeagueView: View {
     @StateObject var viewModel = RocketLeagueViewModel()
 
+    init() {
+        // Set navigation bar appearance for this view
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor.blue // Rocket League Color
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+
+        // --- Tab Bar Appearance (Bottom Bar) ---
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithOpaqueBackground()
+        tabBarAppearance.backgroundColor = UIColor.black
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+    }
+
     var body: some View {
-        ZStack {
-            // Background color for the entire view
-            Color.blue
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack {
-                Image("rocketleague")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 200)
-                
-                // Navigation buttons with custom styling
-                HStack(spacing: 15) {
-                    NavigationLink(destination: RocketLeagueMatchesView(viewModel: viewModel)) {
-                        Text("Matches")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.blue.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: RocketLeagueTeamsView(viewModel: viewModel)) {
-                        Text("Teams")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.blue.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: RocketLeagueNewsView(viewModel: viewModel)) {
-                        Text("News")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.blue.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    NavigationLink(destination: RocketLeagueForumsView(viewModel: viewModel)) {
-                        Text("Forums")
-                            .foregroundColor(.white)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.blue.opacity(0.7))
-                            .cornerRadius(8)
-                    }
+        // --- MODIFIED: Uses TabView for main navigation ---
+        TabView {
+            // 1. Matches Tab
+            RocketLeagueMatchesView(viewModel: viewModel)
+                .tabItem {
+                    Label("Matches", systemImage: "sportscourt.fill")
                 }
-                .padding()
-                
-                Spacer()
-                
-                // Add more content here
-            }
+
+            // 2. Teams Tab
+            RocketLeagueTeamsView(viewModel: viewModel)
+                .tabItem {
+                    Label("Teams", systemImage: "person.3.fill")
+                }
+
+            // 3. News Tab
+            RocketLeagueNewsView(viewModel: viewModel)
+                .tabItem {
+                    Label("News", systemImage: "newspaper.fill")
+                }
+
+            // 4. Forums Tab
+            RocketLeagueForumsView(viewModel: viewModel)
+                .tabItem {
+                    Label("Forums", systemImage: "person.2.fill") // Community/Groups icon
+                }
         }
+        .accentColor(.blue) // Sets the color for the selected tab icon
+        .background(Color.black.edgesIgnoringSafeArea(.all))
         .navigationBarTitle("Rocket League", displayMode: .inline)
-        .accentColor(.white)
-        .toolbarBackground(Color.blue, for: .navigationBar)
+        .toolbarBackground(.black, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        // NOTE: RocketLeagueViewModel currently uses mock data and doesn't have a .task call
     }
 }
-
 // MARK: - Forms Views
 
 struct RLNewForumTopicView: View {
@@ -324,7 +307,7 @@ struct RocketLeagueForumsView: View {
     }
 }
 
-// MARK: - Other Destination Views (For completeness)
+// MARK: - Other Destination Views
 struct RocketLeagueMatchesView: View {
     @ObservedObject var viewModel: RocketLeagueViewModel
 
