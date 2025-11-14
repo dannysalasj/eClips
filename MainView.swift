@@ -1,28 +1,28 @@
-//
-//  ContentView.swift
-//  eClips
-//
-//  Created by Daniel Salas on 5/2/25.
-//
-
-
 import SwiftUI
-import Clerk // <-- ADDED: Import the Clerk SDK
+import Clerk
+
+// --- MODIFIED: Data structure for the main menu items (iconName removed) ---
+struct GameCard: Identifiable {
+    let id = UUID()
+    let name: String
+    let imageName: String // Used for the large card background/icon
+    let primaryColor: Color // Used for accents like the NEW tag or icon background
+    let details: [String] // List of event/link details for the card
+    let destination: AnyView // The view to navigate to
+}
+// --- END MODIFIED ---
 
 
 @main
 struct eClipsApp: App {
 
-    // ADDED: Create and manage the Clerk shared instance state
     @State private var clerk = Clerk.shared
     
     var body: some Scene {
         WindowGroup {
-            // UPDATED: The app's root view is now conditional based on authentication
             ContentView()
-                .environment(clerk) // ADDED: Inject the Clerk instance into the environment
+                .environment(clerk)
                 .task {
-                    // Configure Clerk with key and load the initial session
                     clerk.configure(publishableKey: "pk_test_Y29tcG9zZWQtcXVldHphbC0yOS5jbGVyay5hY2NvdW50cy5kZXYk")
                     try? await clerk.load()
                 }
@@ -30,17 +30,15 @@ struct eClipsApp: App {
     }
 }
 
-// ADDED: New Root View to Handle Authentication Flow
+// NEW Root View to Handle Authentication Flow
 struct ContentView: View {
-    @Environment(\.clerk) private var clerk // Access the injected Clerk instance
+    @Environment(\.clerk) private var clerk
     
     var body: some View {
         Group {
             if let _ = clerk.user {
-                // User is signed in, show the main content
                 MainView()
             } else {
-                // User is signed out, present Clerk's authentication flow
                 AuthView()
             }
         }
@@ -49,101 +47,136 @@ struct ContentView: View {
 
 
 struct MainView: View {
-    // MODIFIED: Inject the Clerk environment object to access the signOut function
     @Environment(\.clerk) private var clerk
+
+    // MODIFIED: Game Cards with iconName removed from initializer
+    private let gameCards: [GameCard] = [
+        .init(name: "Overwatch 2",
+              imageName: "overwatch2",
+              primaryColor: .orange,
+              details: ["MRIG 2025: Grand Finals", "MRC S4: EMEA PC", "MRC S4: AMER PC"],
+              destination: AnyView(OverwatchView())),
+        
+        .init(name: "Valorant",
+              imageName: "valorant",
+              primaryColor: .red,
+              details: ["Red Bull Home Ground 2025", "Game Changers Championship 2025", "CN EVO Series Epilogue"],
+              destination: AnyView(ValorantView())),
+              
+        .init(name: "Rocket League",
+              imageName: "rocketleague",
+              primaryColor: .blue,
+              details: ["PGL Wallachia Season 6", "1Win Not Int 3", "BLAST Slam IV"],
+              destination: AnyView(RocketLeagueView())),
+    ]
+
+    // Define grid layout: 2 columns with adaptive sizing
+    let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
 
     var body: some View {
         NavigationView {
-            VStack {
-                // Header
+            VStack(spacing: 0) { // Keep VStack for overall structure
+                
+                // Top Header (Mimicking Liquipedia's top bar)
                 HStack {
-                    Text("Made by the eSports community for the eSports community.")
-                        .font(.subheadline)
+                    Spacer()
+                    Text("eClips: Esports Hub")
+                        .font(.title2)
+                        .fontWeight(.bold)
                         .foregroundColor(.white)
+                    Spacer()
                 }
-                .padding()
+                .padding(.vertical, 10)
+                .background(Color.black.opacity(0.8)) // Darker header
                 
-                // Game Sections
-                List {
-                    Section {
-                        NavigationLink(destination: OverwatchView()) {
-                            HStack {
-                                Image("overwatch2")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 50, height: 50)
-                                Text("Overwatch 2")
-                                    .font(.title)
-                                    .foregroundColor(.white)
+                // Main Scrollable Content Area with Game Cards
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(gameCards) { card in
+                            NavigationLink(destination: card.destination) {
+                                GameCardView(card: card)
                             }
+                            .buttonStyle(PlainButtonStyle()) // Remove default button styling
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .listRowBackground(Color(UIColor.orange))
                     }
-                    Section {
-                        NavigationLink(destination: ValorantView()) {
-                            HStack {
-                                Image("valorant")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 50, height: 50)
-                                Text("Valorant")
-                                    .font(.title)
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .listRowBackground(Color(UIColor.red))
-                    }
-                    Section {
-                        NavigationLink(destination: RocketLeagueView()) {
-                            HStack {
-                                Image("rocketleague")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 50, height: 50)
-                                Text("Rocket League")
-                                    .font(.title)
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .listRowBackground(Color(UIColor.blue))
-                    }
+                    .padding() // Padding around the grid
                 }
-                .listStyle(GroupedListStyle())
-                .background(Color.black)
-                .scrollContentBackground(.hidden)
+                .background(Color(red: 0.1, green: 0.1, blue: 0.1)) // Darker background for the content
             }
+            .navigationBarHidden(true) // Hide the default navigation bar for custom header
+            .background(Color.black.edgesIgnoringSafeArea(.all)) // Overall black background
             .toolbar {
-                // Toolbar title (principal placement)
-                ToolbarItem(placement: .principal) {
-                    Text("eClips")
-                        .font(.largeTitle)
-                        .foregroundColor(.purple)
-                }
-                
-                // ADDED: Log Out button in the trailing position
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Log Out") {
-                        // Call the async signOut method
                         Task {
                             do {
                                 try await clerk.signOut()
-                                // ContentView will automatically switch to AuthView()
                             } catch {
                                 print("Error signing out: \(error)")
                             }
                         }
                     }
-                    .foregroundColor(.white) // Ensure the button text is visible
+                    .foregroundColor(.white)
                 }
             }
-            // For iOS 16+ explicitly set toolbar background
-            .toolbarBackground(.black, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .background(Color.black)
         }
-        .background(Color.black)
+        .navigationViewStyle(StackNavigationViewStyle()) // Ensure proper navigation stack on iPad
+    }
+}
+
+// MARK: - GameCardView (New Custom View for Each Game Card)
+struct GameCardView: View {
+    let card: GameCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ZStack(alignment: .topTrailing) {
+                // Card background image
+                Image(card.imageName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 120) // Fixed height for the image area
+                    .clipped()
+                    .cornerRadius(8) // Rounded corners for the image
+                
+                if card.name == "Overwatch 2" { // Example for "NEW" tag like in Liquipedia
+                    Text("NEW")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(card.primaryColor)
+                        .cornerRadius(5)
+                        .offset(x: -8, y: 8)
+                }
+                // REMOVED: The logic to display card.iconName is gone.
+            }
+            
+            Text(card.name)
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .padding(.horizontal, 5)
+
+            // Event details
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(card.details.prefix(3), id: \.self) { detail in
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 5)
+            .padding(.bottom, 5)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(red: 0.15, green: 0.15, blue: 0.15)) // Card background color
+        .cornerRadius(10)
+        .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 3)
     }
 }
