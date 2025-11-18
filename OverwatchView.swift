@@ -2,8 +2,7 @@ import SwiftUI
 import Clerk
 
 // MARK: - Data Models (Overwatch Specific)
-// NOTE: OWNewsItem was removed. We now use the 'NewsArticle' model from Models.swift
-struct OWMatch: Identifiable, Decodable {
+struct OWMatchInfo: Identifiable, Decodable {
     let id: String
     let tournament: String
     let team1Name: String
@@ -17,24 +16,24 @@ struct OWMatch: Identifiable, Decodable {
     }
 }
 
-struct OWTeam: Identifiable, Decodable {
+struct OWTeamInfo: Identifiable, Decodable {
     let id: String
     let name: String
     let region: String
 }
 
-// OWNewsItem struct removed.
+// NOTE: OWNewsItem mock struct REMOVED. Now uses OWNewsArticle from Models.swift.
 
 struct OWForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
     let id: String
     let title: String
     let author: String
-    let replies: Int
+    var replies: Int
 }
 
 // MARK: - Persistence Manager
 class OWForumPersistenceManager {
-    static let key = "OverwatchCustomForums"
+    static let key = "OWForumCustomTopics"
     
     static func save(_ topics: [OWForumTopic]) {
         if let encoded = try? JSONEncoder().encode(topics) {
@@ -51,27 +50,70 @@ class OWForumPersistenceManager {
     }
 }
 
-// MARK: - ViewModel
-class OverwatchViewModel: ObservableObject {
-    @Published var completedMatches: [OWMatch] = []
-    @Published var americasTeams: [OWTeam] = []
-    @Published var newsItems: [NewsArticle] = [] // Uses global NewsArticle
-    @Published var forumTopics: [OWForumTopic] = []
+// MARK: - Reply Data Model (NEW)
+struct OWForumReply: Identifiable, Codable {
+    let id: UUID
+    let topicID: String // The ID of the parent OWForumTopic
+    let author: String
+    let text: String
+    let date: Date
+}
 
-    // --- 1. CHANGED: Added new loading state variable ---
+// MARK: - Reply Persistence Manager (NEW)
+class OWReplyPersistenceManager {
+    static let key = "OWForumReplies" // A single key to store ALL replies
+    
+    // Load all replies from UserDefaults
+    static func load() -> [OWForumReply] {
+        if let savedData = UserDefaults.standard.data(forKey: key),
+           let decodedReplies = try? JSONDecoder().decode([OWForumReply].self, from: savedData) {
+            return decodedReplies
+        }
+        return []
+    }
+    
+    // Save all replies to UserDefaults
+    static func save(_ replies: [OWForumReply]) {
+        if let encoded = try? JSONEncoder().encode(replies) {
+            UserDefaults.standard.set(encoded, forKey: key)
+        }
+    }
+}
+
+
+// MARK: - ViewModel
+class OWViewModel: ObservableObject {
+    @Published var completedMatches: [OWMatchInfo] = []
+    @Published var americasTeams: [OWTeamInfo] = []
+    @Published var newsItems: [OWNewsArticle] = []
+    @Published var forumTopics: [OWForumTopic] = []
+    
+    @Published var replies: [OWForumReply] = [] // <-- ADDED
+    
     @Published var isLoadingNews = true
 
     private var initialForumTopics: [OWForumTopic] = []
     @Published private var customForumTopics: [OWForumTopic] = OWForumPersistenceManager.load()
     
+    // ADDED INIT
+    init() {
+        self.replies = OWReplyPersistenceManager.load()
+    }
+    
     private func updateForumTopics() {
         // Combine custom (newest) and mock (initial) data
         self.forumTopics = customForumTopics + initialForumTopics
     }
+    
+    // ADDED HELPER
+    func getReplies(for topicID: String) -> [OWForumReply] {
+        return replies
+            .filter { $0.topicID == topicID }
+            .sorted { $0.date < $1.date } // Show oldest first
+    }
 
-    // --- 2. CHANGED: Updated fetch function ---
     @MainActor
-    func fetchOverwatchData() async {
+    func fetchOWData() async {
         
         // Start loading
         self.isLoadingNews = true
@@ -129,14 +171,14 @@ class OverwatchViewModel: ObservableObject {
                 {"id": "ow_f3", "title": "My favorite legendary skins from the Halloween event!", "author": "CollectorOW", "replies": 95}
             ]
             """
-
+            
             // --- LIVE DATA CALL FOR NEWS ---
-            self.newsItems = try await NetworkDataService.shared.fetchOverwatchNews()
+            self.newsItems = try await NetworkDataService.shared.fetchOWNews()
 
-            // --- Decode other mock data (for now) ---
+            // --- Decode mock data ---
             let decoder = JSONDecoder()
-            self.completedMatches = try decoder.decode([OWMatch].self, from: matchesJson.data(using: .utf8)!)
-            self.americasTeams = try decoder.decode([OWTeam].self, from: teamsJson.data(using: .utf8)!)
+            self.completedMatches = try decoder.decode([OWMatchInfo].self, from: matchesJson.data(using: .utf8)!)
+            self.americasTeams = try decoder.decode([OWTeamInfo].self, from: teamsJson.data(using: .utf8)!)
             
             self.initialForumTopics = try decoder.decode([OWForumTopic].self, from: forumsJson.data(using: .utf8)!)
             updateForumTopics() // Initial load and combination
@@ -164,58 +206,79 @@ class OverwatchViewModel: ObservableObject {
         // Update the published array to refresh the view
         updateForumTopics()
     }
+    
+    // REPLACED FUNCTION: Now accepts text and author
+    func addReply(to topicID: String, text: String, author: String) {
+        // 1. Create the new reply
+        let newReply = OWForumReply(
+            id: UUID(),
+            topicID: topicID,
+            author: author,
+            text: text,
+            date: Date()
+        )
+        
+        // 2. Add to the main replies array
+        replies.append(newReply)
+        
+        // 3. Save all replies to persistence
+        OWReplyPersistenceManager.save(replies)
+        
+        // 4. Increment the topic's reply *counter*
+        if let index = customForumTopics.firstIndex(where: { $0.id == topicID }) {
+            customForumTopics[index].replies += 1
+            OWForumPersistenceManager.save(customForumTopics)
+        }
+        else if let index = initialForumTopics.firstIndex(where: { $0.id == topicID }) {
+            initialForumTopics[index].replies += 1
+        }
+        
+        // 5. Update the published combined list
+        updateForumTopics()
+        
+        // 6. Manually trigger an objectWillChange to force UI refresh
+        objectWillChange.send()
+    }
 }
 
 
 // MARK: - Main View
 struct OverwatchView: View {
-    @StateObject var viewModel = OverwatchViewModel()
+    @StateObject var viewModel = OWViewModel()
     
-    // NOTE: If you are using an iOS 16+ exclusive approach for UIBarAppearance,
-    // you might remove this init block and use the new SwiftUI modifiers instead.
-    init() {
-        // Set navigation bar appearance for this view
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor.orange // Overwatch Color
-        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
-        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
-        
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        
-        // --- Tab Bar Appearance (Bottom Bar) ---
-        let tabBarAppearance = UITabBarAppearance()
-        tabBarAppearance.configureWithOpaqueBackground()
-        tabBarAppearance.backgroundColor = UIColor.black
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
-    }
+    // REMOVED: init() method
     
     var body: some View {
-        // --- MODIFIED: Uses TabView for main navigation ---
+        // --- REVERTED: Uses TabView for main navigation ---
         TabView {
             // 1. Matches Tab
-            OverwatchMatchesView(viewModel: viewModel)
+            NavigationView {
+                OWMatchesView(viewModel: viewModel)
+            }
                 .tabItem {
                     Label("Matches", systemImage: "sportscourt.fill")
                 }
 
             // 2. Teams Tab
-            OverwatchTeamsView(viewModel: viewModel)
+            NavigationView {
+                OWTeamsView(viewModel: viewModel)
+            }
                 .tabItem {
                     Label("Teams", systemImage: "person.3.fill")
                 }
 
             // 3. News Tab
-            OverwatchNewsView(viewModel: viewModel)
+            NavigationView {
+                OWNewsView(viewModel: viewModel)
+            }
                 .tabItem {
                     Label("News", systemImage: "newspaper.fill")
                 }
 
             // 4. Forums Tab
-            OverwatchForumsView(viewModel: viewModel)
+            NavigationView {
+                OWForumsView(viewModel: viewModel)
+            }
                 .tabItem {
                     Label("Forums", systemImage: "person.2.fill") // Community/Groups icon
                 }
@@ -227,7 +290,18 @@ struct OverwatchView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .task {
             // This now runs when the view appears
-            await viewModel.fetchOverwatchData()
+            await viewModel.fetchOWData()
+        }
+        // --- FIXED: This modifier sets the appearance ONLY when this view appears ---
+        .onAppear {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = UIColor.orange // Overwatch's color
+            appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // White text
+            
+            UINavigationBar.appearance().standardAppearance = appearance
+            UINavigationBar.appearance().compactAppearance = appearance
+            UINavigationBar.appearance().scrollEdgeAppearance = appearance
         }
     }
 }
@@ -235,7 +309,7 @@ struct OverwatchView: View {
 
 struct OWNewForumTopicView: View {
     @Environment(\.dismiss) var dismiss
-    @ObservedObject var viewModel: OverwatchViewModel
+    @ObservedObject var viewModel: OWViewModel
     @Environment(\.clerk) private var clerk // To get the author name
 
     @State private var newTopicTitle: String = ""
@@ -271,7 +345,7 @@ struct OWNewForumTopicView: View {
                     Button("Post") {
                         postNewTopic()
                     }
-                    .foregroundColor(.orange)
+                    .foregroundColor(.white) // FIXED: Post button color set to WHITE
                     .disabled(newTopicTitle.isEmpty)
                 }
             }
@@ -280,40 +354,41 @@ struct OWNewForumTopicView: View {
     }
 
     private func postNewTopic() {
-        // Use the logged-in user's first name, or a generic name if unavailable
-        let author = clerk.user?.firstName ?? "Anonymous"
+        let author = clerk.user?.username ?? "eClips User"
         viewModel.addForumTopic(title: newTopicTitle, author: author)
         dismiss()
     }
 }
 
 
-struct OverwatchForumsView: View {
-    @ObservedObject var viewModel: OverwatchViewModel
+struct OWForumsView: View {
+    @ObservedObject var viewModel: OWViewModel
     @State private var showingNewTopicSheet = false
 
     var body: some View {
         List {
             ForEach(viewModel.forumTopics) { topic in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(topic.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        // Highlight user-created topics with 0 replies in this mock scenario
-                        if topic.replies == 0 {
-                            Text("By \(topic.author) (User Post)")
+                // WRAPPED IN NAVIGATIONLINK to enable viewing detail and replying
+                NavigationLink(destination: OWForumDetailView(viewModel: viewModel, topic: topic)) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(topic.title)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        HStack {
+                            if topic.replies == 0 {
+                                Text("By \(topic.author) (User Post)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.orange)
+                            } else {
+                                Text("By \(topic.author)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Text("\(topic.replies) replies")
                                 .font(.subheadline)
                                 .foregroundColor(.orange)
-                        } else {
-                            Text("By \(topic.author)")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
                         }
-                        Spacer()
-                        Text("\(topic.replies) replies")
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
                     }
                 }
                 .listRowBackground(Color.black)
@@ -329,7 +404,7 @@ struct OverwatchForumsView: View {
                     showingNewTopicSheet = true
                 }) {
                     Image(systemName: "plus.circle.fill")
-                        .foregroundColor(.white)
+                        .foregroundColor(.white) // FIXED: Toolbar button set to WHITE
                 }
             }
         }
@@ -340,10 +415,109 @@ struct OverwatchForumsView: View {
     }
 }
 
+// REPLACED STRUCT: Forum Detail View
+struct OWForumDetailView: View {
+    @ObservedObject var viewModel: OWViewModel
+    @State var topic: OWForumTopic // Keep this as @State
+    @Environment(\.clerk) private var clerk // To get the user's name
+    
+    @State private var newReplyText: String = "" // To hold new reply text
+
+    var body: some View {
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            
+            VStack(alignment: .leading, spacing: 0) {
+                // --- 1. Topic Card ---
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(topic.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    HStack {
+                        Text("Author: \(topic.author)")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                        Spacer()
+                        Text("\(topic.replies) Replies") // This will update automatically
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding()
+                .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+                .cornerRadius(10)
+                .padding(.horizontal)
+                .padding(.top)
+
+                // --- 2. List of Replies ---
+                List(viewModel.getReplies(for: topic.id)) { reply in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reply.text)
+                            .foregroundColor(.white)
+                        HStack {
+                            Text("by \(reply.author)")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                            Spacer()
+                            Text(reply.date, style: .date)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    .listRowBackground(Color.black)
+                }
+                .listStyle(PlainListStyle())
+                .scrollContentBackground(.hidden)
+                .background(Color.black)
+
+                // --- 3. New Reply Input Area ---
+                HStack(spacing: 10) {
+                    TextField("Write a reply...", text: $newReplyText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding(8)
+                    
+                    Button(action: postReply) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.orange)
+                            .clipShape(Circle())
+                    }
+                    .disabled(newReplyText.isEmpty)
+                }
+                .padding()
+                .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+            }
+        }
+        .navigationTitle(topic.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    // --- 4. Action for the Post Button ---
+    private func postReply() {
+        let author = clerk.user?.username ?? "eClips User"
+        
+        // Call the viewmodel function
+        viewModel.addReply(to: topic.id, text: newReplyText, author: author)
+        
+        // Manually update the local state to see immediate changes
+        topic.replies += 1
+        
+        // Clear the text field
+        newReplyText = ""
+        
+        // Dismiss keyboard (optional, but good UX)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
 
 // MARK: - Other Destination Views
-struct OverwatchMatchesView: View {
-    @ObservedObject var viewModel: OverwatchViewModel
+struct OWMatchesView: View {
+    @ObservedObject var viewModel: OWViewModel
     
     var body: some View {
         List {
@@ -374,8 +548,8 @@ struct OverwatchMatchesView: View {
     }
 }
 
-struct OverwatchTeamsView: View {
-    @ObservedObject var viewModel: OverwatchViewModel
+struct OWTeamsView: View {
+    @ObservedObject var viewModel: OWViewModel
     
     var body: some View {
         List {
@@ -399,9 +573,8 @@ struct OverwatchTeamsView: View {
     }
 }
 
-// --- 3. CHANGED: This view now checks the 'isLoadingNews' state ---
-struct OverwatchNewsView: View {
-    @ObservedObject var viewModel: OverwatchViewModel
+struct OWNewsView: View {
+    @ObservedObject var viewModel: OWViewModel
     
     var body: some View {
         List {
@@ -411,7 +584,7 @@ struct OverwatchNewsView: View {
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .listRowBackground(Color.black)
             }
-            // If we are DONE loading and the list is still empty...
+            // If we are DONE loading and have news, show it
             else if viewModel.newsItems.isEmpty {
                 // ...show a "No News" message
                 Text("No news found.")
@@ -422,13 +595,13 @@ struct OverwatchNewsView: View {
             else {
                 ForEach(viewModel.newsItems) { item in
                     // Wrap in a Link to make it tappable
-                    Link(destination: URL(string: item.link)!) {
+                    Link(destination: URL(string: item.link) ?? URL(string: "https://www.over.gg/news")!) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(item.title)
                                 .font(.headline)
                                 .foregroundColor(.white)
                             HStack {
-                                Text(item.author) // Changed from .source
+                                Text(item.author) // UPDATED to use .author (from OWNewsArticle)
                                     .font(.subheadline)
                                     .foregroundColor(.orange)
                                 Spacer()

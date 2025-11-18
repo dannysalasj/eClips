@@ -1,10 +1,11 @@
 import requests
-from selectolax.parser import HTMLParser # type: ignore
 
-from utils.utils import headers # type: ignore
+from selectolax.parser import HTMLParser
+
+from utils.utils import headers
 
 
-def vlr_news():
+def val_news():
     url = "https://www.vlr.gg/news"
     resp = requests.get(url, headers=headers)
     html = HTMLParser(resp.text)
