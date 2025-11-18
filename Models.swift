@@ -1,5 +1,21 @@
 import Foundation
-import SwiftUI // <-- ADD THIS IMPORT
+import SwiftUI
+
+// MARK: - UNIVERSAL MOCK MODEL
+// A simple, reusable struct for all mock matches (MOVED FROM VALMockData.swift)
+struct MockMatch: Identifiable, Decodable {
+    let id: String
+    let tournament: String
+    let team1Name: String
+    let team2Name: String
+    let team1Score: Int
+    let team2Score: Int
+    let date: String
+
+    var matchResult: String {
+        "\(team1Score) - \(team2Score)"
+    }
+}
 
 // MARK: - Unified News Model
 // This struct can hold news from any game
@@ -133,74 +149,4 @@ struct RLNewsArticle: Codable, Identifiable {
         case title, author, date, description
         case link = "url_path"
     }
-}
-// MARK: - Pandascore Helper Models (Universal Components)
-
-// Helper struct for the `opponents` array inside `Match`.
-// Pandascore nests the team data inside an "opponent" object.
-struct VALOpponent: Codable, Identifiable {
-    var id: Int { team.id }
-    let team: VALTeam
-}
-
-struct OWOpponent: Codable, Identifiable {
-    var id: Int { team.id }
-    let team: OWTeam
-}
-
-struct RLOpponent: Codable, Identifiable {
-    var id: Int { team.id }
-    let team: RLTeam
-}
-
-
-// MARK: - Pandascore Models (Game Specific)
-
-// Valorant
-struct VALTeam: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let imageUrl: String?
-    let acronym: String?
-}
-
-struct VALMatch: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let beginAt: String?
-    let status: String
-    let opponents: [VALOpponent]
-}
-
-
-// Overwatch
-struct OWTeam: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let imageUrl: String?
-    let acronym: String?
-}
-
-struct OWMatch: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let beginAt: String?
-    let status: String
-    let opponents: [OWOpponent]
-}
-
-// Rocket League
-struct RLTeam: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let imageUrl: String?
-    let acronym: String?
-}
-
-struct RLMatch: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let beginAt: String?
-    let status: String
-    let opponents: [RLOpponent]
 }
