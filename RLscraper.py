@@ -80,4 +80,4 @@ def rl_news():
     print(f"RL Scraper (v_REDDIT) found {len(result)} results.")
     final_data = {"data": {"status": status, "segments": result}}
 
-    return final_data
+    return final_data #this one was unchanged
