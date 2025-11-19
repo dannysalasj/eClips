@@ -1,35 +1,14 @@
 import SwiftUI
 import Clerk
+import Foundation // Needed for OWMockData
 
 // MARK: - Data Models (Overwatch Specific)
-struct OWMatchInfo: Identifiable, Decodable {
-    let id: String
-    let tournament: String
-    let team1Name: String
-    let team2Name: String
-    let team1Score: Int
-    let team2Score: Int
-    let date: String
-
-    var matchResult: String {
-        "\(team1Score) - \(team2Score)"
-    }
-}
-
-struct OWTeamInfo: Identifiable, Decodable {
-    let id: String
-    let name: String
-    let region: String
-}
+// These structs are now defined in OWMockData.swift and Models.swift
+typealias OWMatchInfo = MockMatch
+typealias OWTeamInfo = OWMockData.OWTeamInfo
+typealias OWForumTopic = OWMockData.OWForumTopic
 
 // NOTE: OWNewsItem mock struct REMOVED. Now uses OWNewsArticle from Models.swift.
-
-struct OWForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
-    let id: String
-    let title: String
-    let author: String
-    var replies: Int
-}
 
 // MARK: - Persistence Manager
 class OWForumPersistenceManager {
@@ -119,68 +98,15 @@ class OWViewModel: ObservableObject {
         self.isLoadingNews = true
         
         do {
-            // --- MOCK DATA SIMULATING COMPLETED MATCHES ---
-            let matchesJson = """
-            [
-                {
-                    "id": "ow_m1",
-                    "tournament": "OWL 2024 Grand Finals",
-                    "team1Name": "Atlanta Reign",
-                    "team2Name": "Boston Uprising",
-                    "team1Score": 4,
-                    "team2Score": 2,
-                    "date": "2024-10-28"
-                },
-                {
-                    "id": "ow_m2",
-                    "tournament": "Contenders NA Summer",
-                    "team1Name": "Toronto Defiant Academy",
-                    "team2Name": "Karmina Corp",
-                    "team1Score": 2,
-                    "team2Score": 3,
-                    "date": "2024-10-25"
-                },
-                {
-                    "id": "ow_m3",
-                    "tournament": "OWL Regular Season",
-                    "team1Name": "San Francisco Shock",
-                    "team2Name": "Dallas Fuel",
-                    "team1Score": 3,
-                    "team2Score": 0,
-                    "date": "2024-10-20"
-                }
-            ]
-            """
-            
-            // --- MOCK DATA SIMULATING 5 AMERICAS TEAMS ---
-            let teamsJson = """
-            [
-                {"id": "ow_t1", "name": "Atlanta Reign", "region": "Americas"},
-                {"id": "ow_t2", "name": "Boston Uprising", "region": "Americas"},
-                {"id": "ow_t3", "name": "Toronto Defiant", "region": "Americas"},
-                {"id": "ow_t4", "name": "Vancouver Titans", "region": "Americas"},
-                {"id": "ow_t5", "name": "Dallas Fuel", "region": "Americas"}
-            ]
-            """
-
-            // --- MOCK DATA SIMULATING FORUMS ---
-            let forumsJson = """
-            [
-                {"id": "ow_f1", "title": "Who do you think is the best Zarya player right now? Discussion.", "author": "TankMain77", "replies": 560},
-                {"id": "ow_f2", "title": "Request: New competitive mode rule set for one-tank.", "author": "RuleChanger", "replies": 1823},
-                {"id": "ow_f3", "title": "My favorite legendary skins from the Halloween event!", "author": "CollectorOW", "replies": 95}
-            ]
-            """
             
             // --- LIVE DATA CALL FOR NEWS ---
             self.newsItems = try await NetworkDataService.shared.fetchOWNews()
 
-            // --- Decode mock data ---
-            let decoder = JSONDecoder()
-            self.completedMatches = try decoder.decode([OWMatchInfo].self, from: matchesJson.data(using: .utf8)!)
-            self.americasTeams = try decoder.decode([OWTeamInfo].self, from: teamsJson.data(using: .utf8)!)
+            // --- REMOVED HARDCODED JSON STRINGS, NOW DIRECTLY ASSIGNED FROM MOCK FILES ---
+            self.completedMatches = OWMockData.matches
+            self.americasTeams = OWMockData.teams
+            self.initialForumTopics = OWMockData.forumTopics
             
-            self.initialForumTopics = try decoder.decode([OWForumTopic].self, from: forumsJson.data(using: .utf8)!)
             updateForumTopics() // Initial load and combination
 
         } catch {
@@ -522,21 +448,24 @@ struct OWMatchesView: View {
     var body: some View {
         List {
             ForEach(viewModel.completedMatches) { match in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(match.tournament)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text("\(match.team1Name) vs \(match.team2Name)")
-                            .font(.subheadline)
+                // MODIFIED: Wrapped content in Link to redirect to OW match results
+                Link(destination: URL(string: "https://owtv.gg/matches")!) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(match.tournament)
+                            .font(.headline)
                             .foregroundColor(.white)
-                        Spacer()
-                        Text("**\(match.matchResult)**")
-                            .foregroundColor(.orange)
+                        HStack {
+                            Text("\(match.team1Name) vs \(match.team2Name)")
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("**\(match.matchResult)**")
+                                .foregroundColor(.orange)
+                        }
+                        Text(match.date)
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
-                    Text(match.date)
-                        .font(.caption)
-                        .foregroundColor(.gray)
                 }
                 .listRowBackground(Color.black)
             }
@@ -554,14 +483,17 @@ struct OWTeamsView: View {
     var body: some View {
         List {
             ForEach(viewModel.americasTeams) { team in
-                HStack {
-                    Text(team.name)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text(team.region)
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
+                // MODIFIED: Wrapped content in Link to redirect to OW rankings
+                Link(destination: URL(string: "https://esports.overwatch.com/en-us/rankings")!) {
+                    HStack {
+                        Text(team.name)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(team.region)
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
                 }
                 .listRowBackground(Color.black)
             }
