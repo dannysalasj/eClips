@@ -1,37 +1,15 @@
 import SwiftUI
 import Clerk
+import Foundation // Needed for RLMockData
 
 // MARK: - Data Models (Rocket League Specific)
-struct RLMatchInfo: Identifiable, Decodable {
-    let id: String
-    let tournament: String
-    let team1Name: String
-    let team2Name: String
-    let team1Score: Int
-    let team2Score: Int
-    let date: String
-
-    var matchResult: String {
-        "\(team1Score) - \(team2Score)"
-    }
-}
-
-struct RLTeamInfo: Identifiable, Decodable {
-    let id: String
-    let name: String
-    let region: String
-}
+// These structs are now defined in RLMockData.swift and Models.swift
+typealias RLMatchInfo = MockMatch
+typealias RLTeamInfo = RLMockData.RLTeamInfo
+typealias RLForumTopic = RLMockData.RLForumTopic
 
 // --- MOCK STRUCT 'RLNewsItem' REMOVED ---
 // We now use 'RLNewsArticle' from Models.swift
-
-struct RLForumTopic: Identifiable, Codable { // Conforms to Codable for persistence
-    let id: String
-    let title: String
-    let author: String
-    var replies: Int // CHANGED to VAR
-}
-
 
 // MARK: - Persistence Manager
 class RLForumPersistenceManager {
@@ -68,6 +46,7 @@ class RLReplyPersistenceManager {
     // Load all replies from UserDefaults
     static func load() -> [RLForumReply] {
         if let savedData = UserDefaults.standard.data(forKey: key),
+           // --- FIX APPLIED HERE: Corrected JSONDecoder syntax ---
            let decodedReplies = try? JSONDecoder().decode([RLForumReply].self, from: savedData) {
             return decodedReplies
         }
@@ -87,9 +66,9 @@ class RLReplyPersistenceManager {
 class RLViewModel: ObservableObject {
     @Published var completedMatches: [RLMatchInfo] = []
     @Published var americasTeams: [RLTeamInfo] = []
-    @Published var newsItems: [RLNewsArticle] = [] // <-- 1. CHANGED from RLNewsItem
+    @Published var newsItems: [RLNewsArticle] = []
     @Published var forumTopics: [RLForumTopic] = []
-    @Published var isLoadingNews = true // <-- 2. ADDED loading state
+    @Published var isLoadingNews = true
     
     @Published var replies: [RLForumReply] = []
 
@@ -99,7 +78,6 @@ class RLViewModel: ObservableObject {
 
     init() {
         self.replies = RLReplyPersistenceManager.load()
-        // REMOVED fetchRLData() from init, we'll use .task in the View
     }
     
     private func updateForumTopics() {
@@ -112,57 +90,27 @@ class RLViewModel: ObservableObject {
             .sorted { $0.date < $1.date }
     }
 
-    // --- 3. REPLACED 'fetchRLData' with an async network call ---
     @MainActor
     func fetchRLData() async {
         
         self.isLoadingNews = true
         
         do {
-            // --- MOCK DATA SIMULATING COMPLETED MATCHES (Rocket League) ---
-            let matchesJson = """
-            [
-                {"id": "rl_m1", "tournament": "RLCS Major 1 Grand Final", "team1Name": "G2 Esports", "team2Name": "FURIA Esports", "team1Score": 4, "team2Score": 3, "date": "2024-03-24"},
-                {"id": "rl_m2", "tournament": "RLCS North American Open 3", "team1Name": "Gen.G", "team2Name": "Spacestation Gaming", "team1Score": 3, "team2Score": 1, "date": "2024-02-18"},
-                {"id": "rl_m3", "tournament": "RLCS South American Open 1", "team1Name": "Ninjas in Pyjamas", "team2Name": "The Club", "team1Score": 4, "team2Score": 1, "date": "2024-01-20"}
-            ]
-            """
-            
-            // --- MOCK DATA SIMULATING 5 AMERICAS TEAMS ---
-            let teamsJson = """
-            [
-                {"id": "rl_t1", "name": "G2 Esports", "region": "Americas"},
-                {"id": "rl_t2", "name": "FURIA Esports", "region": "Americas"},
-                {"id": "rl_t3", "name": "Complexity Gaming", "region": "Americas"},
-                {"id": "rl_t4", "name": "Shopify Rebellion", "region": "Americas"},
-                {"id": "rl_t5", "name": "Spacestation Gaming", "region": "Americas"}
-            ]
-            """
-            
-            // --- MOCK DATA SIMULATING FORUMS ---
-            let forumsJson = """
-            [
-                {"id": "rl_f1", "title": "Is the new RLCS circuit too demanding on player health?", "author": "RLProDebater", "replies": 890},
-                {"id": "rl_f2", "title": "Which decal looks the best on the Octane? Post your setups!", "author": "CustomCarFan", "replies": 3205},
-                {"id": "rl_f3", "title": "Theory: Next season's world championship location is Europe.", "author": "MapPredictor", "replies": 156}
-            ]
-            """
-
             // --- REAL NETWORK CALL FOR NEWS ---
             self.newsItems = try await NetworkDataService.shared.fetchRLNews()
 
-            // --- DECODE MOCK DATA (MATCHES, TEAMS, FORUMS) ---
-            let decoder = JSONDecoder()
-            self.completedMatches = try decoder.decode([RLMatchInfo].self, from: matchesJson.data(using: .utf8)!)
-            self.americasTeams = try decoder.decode([RLTeamInfo].self, from: teamsJson.data(using: .utf8)!)
-            self.initialForumTopics = try decoder.decode([RLForumTopic].self, from: forumsJson.data(using: .utf8)!)
+            // --- REMOVED HARDCODED JSON STRINGS, NOW DIRECTLY ASSIGNED FROM MOCK FILES ---
+            self.completedMatches = RLMockData.matches
+            self.americasTeams = RLMockData.teams
+            self.initialForumTopics = RLMockData.forumTopics
+            
             updateForumTopics()
 
         } catch {
             print("Failed to decode or fetch data: \(error)")
         }
         
-        self.isLoadingNews = false // <-- 4. ADDED
+        self.isLoadingNews = false
     }
     
     func addForumTopic(title: String, author: String) {
@@ -464,21 +412,24 @@ struct RLMatchesView: View {
     var body: some View {
         List {
             ForEach(viewModel.completedMatches) { match in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(match.tournament)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    HStack {
-                        Text("\(match.team1Name) vs \(match.team2Name)")
-                            .font(.subheadline)
+                // MODIFIED: Wrapped content in Link to redirect to RL match results
+                Link(destination: URL(string: "https://tips.gg/rl/matches/")!) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(match.tournament)
+                            .font(.headline)
                             .foregroundColor(.white)
-                        Spacer()
-                        Text("**\(match.matchResult)**")
-                            .foregroundColor(.blue)
+                        HStack {
+                            Text("\(match.team1Name) vs \(match.team2Name)")
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("**\(match.matchResult)**")
+                                .foregroundColor(.blue)
+                        }
+                        Text(match.date)
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
-                    Text(match.date)
-                        .font(.caption)
-                        .foregroundColor(.gray)
                 }
                 .listRowBackground(Color.black)
             }
@@ -496,14 +447,17 @@ struct RLTeamsView: View {
     var body: some View {
         List {
             ForEach(viewModel.americasTeams) { team in
-                HStack {
-                    Text(team.name)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text(team.region)
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
+                // MODIFIED: Wrapped content in Link to redirect to RL teams/rankings
+                Link(destination: URL(string: "https://tips.gg/rl/teams/")!) {
+                    HStack {
+                        Text(team.name)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(team.region)
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
                 }
                 .listRowBackground(Color.black)
             }
